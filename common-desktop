@@ -1,0 +1,9 @@
+#! /usr/bin/env bash
+
+# This is needed to run gsettings from cron. Slightly modified code from:
+# http://askubuntu.com/a/484752.
+PID=$(pgrep mate-session)
+export DBUS_SESSION_BUS_ADDRESS=$(grep -z DBUS_SESSION_BUS_ADDRESS /proc/$PID/environ|cut -d= -f2-)
+
+cd /home/sebastian/workspace/common-desktop
+python2 common_desktop.py $*
