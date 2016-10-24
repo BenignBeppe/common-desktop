@@ -7,12 +7,15 @@ import os
 import logging
 import datetime
 import argparse
+import subprocess
 
 LOGS_PATH = "logs"
 IMAGES_PATH = "images"
 DB_PATH = "images.db"
 URL = "https://commons.wikimedia.org/w/api.php"
 CATEGORY = "Category:Commons featured widescreen desktop backgrounds"
+GNOME_SET_BACKGROUND_COMMAND = "gsettings set org.gnome.desktop.background picture-uri file://{image_path}"
+MATE_SET_BACKGROUND_COMMAND = "gsettings set org.mate.background picture-filename {image_path}"
 
 def setup_loggin(print_log):
     ensure_path_exists(LOGS_PATH)
@@ -118,18 +121,32 @@ def get_image_url(page_id):
     return url
 
 def download_image(image_url, page_id):
-    ensure_path_exists(IMAGES_PATH)
     file_ending = os.path.splitext(image_url)[1]
     path = "{}/{}{}".format(IMAGES_PATH, page_id, file_ending)
     logging.info("Downloading %s to %s.", image_url, path)
     urllib.urlretrieve(image_url, path)
-    return path
 
 def set_desktop_image(image_path):
-    command = "gsettings set org.mate.background picture-filename {}".format(
-        os.path.abspath(image_path))
+    command = get_set_background_command().format(
+        image_path=os.path.abspath(image_path)
+    )
     logging.info("Running: %s", command)
-    os.system(command)
+    subprocess.call(command.split())
+
+def get_set_background_command():
+    if process_is_running("gnome-session"):
+        return GNOME_SET_BACKGROUND_COMMAND
+    elif process_is_running("mate-session"):
+        return MATE_SET_BACKGROUND_COMMAND
+
+def process_is_running(process_name):
+    user_name = subprocess.check_output(["whoami"])
+    command = "pgrep -u {} {}".format(user_name, process_name).split()
+    try:
+        return subprocess.check_output(command) != ""
+    except subprocess.CalledProcessError:
+        # This seems to happen when the program isn't installed.
+        return False
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -153,6 +170,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     setup_loggin(args.print_log)
+    ensure_path_exists(IMAGES_PATH)
     if args.update:
         populate_table()
     if args.new_image:
