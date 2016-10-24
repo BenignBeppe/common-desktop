@@ -13,8 +13,6 @@ IMAGES_PATH = "images"
 DB_PATH = "images.db"
 URL = "https://commons.wikimedia.org/w/api.php"
 CATEGORY = "Category:Commons featured widescreen desktop backgrounds"
-INSERT_IMAGE = "INSERT INTO images VALUES({id})"
-GET_PAGE_IDS = "SELECT * from images"
 
 def setup_loggin(print_log):
     ensure_path_exists(LOGS_PATH)
@@ -29,10 +27,13 @@ def ensure_path_exists(path):
 
 def populate_table():
     connection = sqlite3.connect(DB_PATH)
+    ensure_images_table_exists(connection)
     for page_ids in get_page_ids():
         for page_id in page_ids:
             try:
-                connection.execute(INSERT_IMAGE.format(id=page_id))
+                connection.execute(
+                    "INSERT INTO images VALUES({id})".format(id=page_id)
+                )
                 connection.commit()
                 logging.info("Added page id to database: %s", page_id)
             except sqlite3.IntegrityError:
@@ -40,6 +41,15 @@ def populate_table():
                 logging.debug("Didn't add page id %s to database. Probably since it was already present.", page_id)
                 continue
     connection.close()
+
+def ensure_images_table_exists(connection):
+    table = connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='image'"
+    ).fetchall()
+    if not table:
+        logging.debug("No image table found, creating new.")
+        connection.execute("CREATE TABLE images (int RPIMARY KEY)")
+        connection.commit()
 
 def get_page_ids():
     parameters = {
@@ -81,7 +91,7 @@ def change_image():
 
 def pick_page():
     connection = sqlite3.connect(DB_PATH)
-    page_ids = connection.execute(GET_PAGE_IDS).fetchall()
+    page_ids = connection.execute("SELECT * from images").fetchall()
     connection.close()
     return random.choice(page_ids)[0]
 
