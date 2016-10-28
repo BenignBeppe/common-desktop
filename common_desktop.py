@@ -8,6 +8,7 @@ import logging
 import datetime
 import argparse
 import subprocess
+import webbrowser
 
 LOGS_PATH = "logs"
 IMAGES_PATH = "images"
@@ -16,6 +17,7 @@ URL = "https://commons.wikimedia.org/w/api.php"
 CATEGORY = "Category:Commons featured widescreen desktop backgrounds"
 GNOME_SET_BACKGROUND_COMMAND = "gsettings set org.gnome.desktop.background picture-uri file://{image_path}"
 MATE_SET_BACKGROUND_COMMAND = "gsettings set org.mate.background picture-filename {image_path}"
+COMMONS_PAGE_BY_ID = "https://commons.wikimedia.org/w/?curid={page_id}"
 
 def setup_loggin(print_log):
     ensure_path_exists(LOGS_PATH)
@@ -28,14 +30,13 @@ def ensure_path_exists(path):
     if not os.path.exists(path):
         os.makedirs(path)
 
-def populate_table():
-    connection = sqlite3.connect(DB_PATH)
+def populate_table(connection):
     ensure_images_table_exists(connection)
     for page_ids in get_page_ids():
         for page_id in page_ids:
             try:
                 connection.execute(
-                    "INSERT INTO images VALUES({id})".format(id=page_id)
+                    "INSERT INTO images VALUES({id}, 0)".format(id=page_id)
                 )
                 connection.commit()
                 logging.info("Added page id to database: %s", page_id)
@@ -46,13 +47,8 @@ def populate_table():
     connection.close()
 
 def ensure_images_table_exists(connection):
-    table = connection.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='image'"
-    ).fetchall()
-    if not table:
-        logging.debug("No image table found, creating new.")
-        connection.execute("CREATE TABLE images (int RPIMARY KEY)")
-        connection.commit()
+    connection.execute("CREATE TABLE IF NOT EXISTS images (id int UNIQUE, current boolean DEFAULT 0)")
+    connection.commit()
 
 def get_page_ids():
     parameters = {
@@ -84,18 +80,25 @@ def send_request(parameters):
     response = json.loads(response_string)
     return response
 
-def change_image():
-    page_id = pick_page()
+def change_image(connection):
+    old_page_id = get_current_id(connection)
+    if old_page_id:
+        connection.execute(
+            "REPLACE INTO images VALUES({id}, 0)".format(id=old_page_id)
+        )
+    page_id = pick_page(connection)
     if not image_exists(page_id):
         image_url = get_image_url(page_id)
         download_image(image_url, page_id)
     image_path = get_path_for_page_id(page_id)
     set_desktop_image(image_path)
+    connection.execute(
+        "REPLACE INTO images VALUES({id}, 1)".format(id=page_id)
+    )
+    connection.commit()
 
-def pick_page():
-    connection = sqlite3.connect(DB_PATH)
-    page_ids = connection.execute("SELECT * from images").fetchall()
-    connection.close()
+def pick_page(connection):
+    page_ids = connection.execute("SELECT id FROM images").fetchall()
     return random.choice(page_ids)[0]
 
 def image_exists(page_id):
@@ -148,6 +151,17 @@ def process_is_running(process_name):
         # This seems to happen when the program isn't installed.
         return False
 
+def show_image_page(connection):
+    page_id = get_current_id(connection)
+    webbrowser.open(COMMONS_PAGE_BY_ID.format(page_id=page_id))
+
+def get_current_id(connection):
+    current_id = connection.execute(
+        "SELECT id FROM images WHERE current=1"
+    ).fetchone()
+    if current_id != None:
+        return current_id[0]
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -168,10 +182,20 @@ if __name__ == "__main__":
         help="Change to a new desktop image.",
         action="store_true"
     )
+    parser.add_argument(
+        "--information",
+        "-i",
+        help="Open the page for the current image on Wikimedia Commons in the default web brower.",
+        action="store_true"
+    )
     args = parser.parse_args()
     setup_loggin(args.print_log)
     ensure_path_exists(IMAGES_PATH)
+    connection = sqlite3.connect(DB_PATH)
     if args.update:
-        populate_table()
+        populate_table(connection)
     if args.new_image:
-        change_image()
+        change_image(connection)
+    if args.information:
+        show_image_page(connection)
+    connection.close()
