@@ -1,5 +1,7 @@
-import urllib
-import urllib2
+#! /usr/bin/env python3
+
+import urllib.request
+import urllib.parse
 import json
 import sqlite3
 import random
@@ -14,7 +16,6 @@ LOGS_PATH = "logs"
 IMAGES_PATH = "images"
 DB_PATH = "images.db"
 URL = "https://commons.wikimedia.org/w/api.php"
-CATEGORY = "Category:Commons featured widescreen desktop backgrounds"
 GNOME_SET_BACKGROUND_COMMAND = "gsettings set org.gnome.desktop.background picture-uri file://{image_path}"
 MATE_SET_BACKGROUND_COMMAND = "gsettings set org.mate.background picture-filename {image_path}"
 COMMONS_PAGE_BY_ID = "https://commons.wikimedia.org/w/?curid={page_id}"
@@ -30,40 +31,46 @@ def ensure_path_exists(path):
     if not os.path.exists(path):
         os.makedirs(path)
 
-def populate_table(connection):
+def populate_table(connection, category):
     ensure_images_table_exists(connection)
-    for page_ids in get_page_ids():
-        for page_id in page_ids:
-            try:
-                connection.execute(
-                    "INSERT INTO images VALUES({id}, 0)".format(id=page_id)
-                )
-                connection.commit()
-                logging.info("Added page id to database: %s", page_id)
-            except sqlite3.IntegrityError:
-                # Skip if the id is already in the table.
-                logging.debug("Didn't add page id %s to database. Probably since it was already present.", page_id)
-                continue
+    for page_id in get_page_ids(category):
+        try:
+            connection.execute(
+                "INSERT INTO images VALUES({id}, 0)".format(id=page_id)
+            )
+            connection.commit()
+            logging.info("Added page id to database: %s", page_id)
+        except sqlite3.IntegrityError:
+            # Skip if the id is already in the table.
+            logging.debug("Didn't add page id %s to database. Probably since it was already present.", page_id)
+            continue
     connection.close()
 
 def ensure_images_table_exists(connection):
     connection.execute("CREATE TABLE IF NOT EXISTS images (id int UNIQUE, current boolean DEFAULT 0)")
     connection.commit()
 
-def get_page_ids():
+def get_page_ids(category):
     parameters = {
         "action": "query",
         "format": "json",
         "list": "categorymembers",
-        "cmtitle": CATEGORY,
-        "cmtype": "file",
+        "cmtitle": category,
+        "cmtype": "file|subcat",
         "continue": ""
     }
     while True:
         response = send_request(parameters)
         pages = response["query"]["categorymembers"]
-        page_ids = [p["pageid"] for p in pages]
-        yield page_ids
+        for page in pages:
+            if page["ns"] == 6:
+                # Page is in the File namespace.
+                yield page["pageid"]
+            elif page["ns"] == 14:
+                # Page is in the Category namespace.
+                catergory = page["title"]
+                for id in get_page_ids(catergory):
+                    yield id
         if "continue" not in response:
             # Keep fetching until there is no continue paramter.
             break
@@ -72,10 +79,10 @@ def get_page_ids():
 
 def send_request(parameters):
     logging.debug("PARAMETERS: %s", parameters)
-    request = urllib2.Request(URL)
-    request.add_data(urllib.urlencode(parameters))
-    logging.debug("REQUEST: %s?%s", request.get_full_url(), request.get_data())
-    response_string = urllib2.urlopen(request).read()
+    data = urllib.parse.urlencode(parameters)
+    request = urllib.request.Request(URL, data.encode())
+    logging.debug("REQUEST: %s?%s", request.get_full_url(), data)
+    response_string = urllib.request.urlopen(request).read().decode()
     logging.debug("RESPONSE: %s", response_string)
     response = json.loads(response_string)
     return response
@@ -120,14 +127,14 @@ def get_image_url(page_id):
     }
     response = send_request(parameters)
     pages = response["query"]["pages"]
-    url = pages[pages.keys()[0]]["imageinfo"][0]["url"]
+    url = pages[list(pages)[0]]["imageinfo"][0]["url"]
     return url
 
 def download_image(image_url, page_id):
     file_ending = os.path.splitext(image_url)[1]
     path = "{}/{}{}".format(IMAGES_PATH, page_id, file_ending)
     logging.info("Downloading %s to %s.", image_url, path)
-    urllib.urlretrieve(image_url, path)
+    urllib.request.urlretrieve(image_url, path)
 
 def set_desktop_image(image_path):
     command = get_set_background_command().format(
@@ -143,7 +150,7 @@ def get_set_background_command():
         return MATE_SET_BACKGROUND_COMMAND
 
 def process_is_running(process_name):
-    user_name = subprocess.check_output(["whoami"])
+    user_name = subprocess.check_output(["whoami"]).decode()
     command = "pgrep -u {} {}".format(user_name, process_name).split()
     try:
         return subprocess.check_output(command) != ""
@@ -165,10 +172,10 @@ def get_current_id(connection):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--update",
-        "-u",
-        help="Update the page ids in the database.",
-        action="store_true"
+        "--fetch-ids",
+        "-f",
+        help="Update the page ids in the database by getting the page ids from CATEGORY and its subcategories.",
+        metavar="CATEGORY"
     )
     parser.add_argument(
         "--print-log",
@@ -185,15 +192,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "--information",
         "-i",
-        help="Open the page for the current image on Wikimedia Commons in the default web brower.",
+        help="Open the page for the current image on Wikimedia Commons in the default web browser.",
         action="store_true"
     )
     args = parser.parse_args()
     setup_loggin(args.print_log)
     ensure_path_exists(IMAGES_PATH)
     connection = sqlite3.connect(DB_PATH)
-    if args.update:
-        populate_table(connection)
+    if args.fetch_ids:
+        populate_table(connection, "Category:{}".format(args.fetch_ids))
     if args.new_image:
         change_image(connection)
     if args.information:

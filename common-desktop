@@ -13,5 +13,6 @@ then
     export DBUS_SESSION_BUS_ADDRESS=$(grep -z DBUS_SESSION_BUS_ADDRESS /proc/$PID/environ|cut -d= -f2-)
 fi
 
-cd /home/sebastian/workspace/common-desktop
-python2 common_desktop.py $*
+# Set the path below to where Common Desktop is.
+cd /path/to/common-desktop
+./common_desktop.py $*
