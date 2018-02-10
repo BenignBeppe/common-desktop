@@ -1,7 +1,6 @@
 #! /usr/bin/env python3
 
-import urllib.request
-import urllib.parse
+import urllib
 import json
 import sqlite3
 import random
@@ -11,6 +10,8 @@ import datetime
 import argparse
 import subprocess
 import webbrowser
+
+import requests
 
 LOGS_PATH = "logs"
 IMAGES_PATH = "images"
@@ -91,14 +92,10 @@ def get_page_ids(category):
         parameters["cmcontinue"] = response["continue"]["cmcontinue"]
 
 def send_request(parameters):
-    logging.debug("PARAMETERS: {}".format(parameters))
-    data = urllib.parse.urlencode(parameters)
-    request = urllib.request.Request(URL, data.encode())
-    logging.debug("REQUEST: {}?{}".format(request.get_full_url(), data))
-    response_string = urllib.request.urlopen(request).read().decode()
-    logging.debug("RESPONSE: {}".format(response_string))
-    response = json.loads(response_string)
-    return response
+    response = requests.get(URL, params=parameters)
+    logging.debug("REQUEST: {}".format(response.url))
+    logging.debug("RESPONSE: {}".format(response.json()))
+    return response.json()
 
 def change_image(connection):
     old_id = get_current_id(connection)
