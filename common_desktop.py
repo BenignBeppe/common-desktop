@@ -105,8 +105,9 @@ def change_image(connection):
         ).fetchone()[0]
         if status != FAVORITE:
             old_path = get_path_for_page_id(old_id)
-            logging.info("Removing image: {}.".format(old_path))
-            os.remove(old_path)
+            if old_path is not None:
+                logging.info("Removing image: {}.".format(old_path))
+                os.remove(old_path)
         connection.execute(
             "UPDATE images SET current=0, last_shown=strftime('%s','now') WHERE id={}".format(old_id)
         )
