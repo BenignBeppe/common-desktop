@@ -20,17 +20,24 @@ URL = "https://commons.wikimedia.org/w/api.php"
 GNOME_SET_BACKGROUND_COMMAND = "gsettings set org.gnome.desktop.background picture-uri file://{image_path}"
 MATE_SET_BACKGROUND_COMMAND = "gsettings set org.mate.background picture-filename {image_path}"
 COMMONS_PAGE_BY_ID = "https://commons.wikimedia.org/w/?curid={page_id}"
-DEFAULT_FETCH_AMOUNT=100
+DEFAULT_FETCH_AMOUNT = 100
 # Statuses for an image.
 FAVORITE = 1
 
 def setup_loggin(print_log):
     ensure_path_exists(LOGS_PATH)
-    log_path = "{}/{}.log".format(LOGS_PATH, datetime.datetime.now())
-    logging.basicConfig(filename=log_path, level=logging.DEBUG)
+    log_path = "{}/common-desktop.log".format(LOGS_PATH)
+    logging.basicConfig(
+        filename=log_path,
+        level=logging.DEBUG,
+        format="%(asctime)s [%(levelname)s] %(message)s"
+    )
     if print_log:
         stream_handler = logging.StreamHandler()
         stream_handler.setLevel(logging.INFO)
+        stream_handler.setFormatter(
+            logging.Formatter("%(asctime)s %(message)s")
+        )
         logging.getLogger().addHandler(stream_handler)
 
 def ensure_path_exists(path):
@@ -92,8 +99,9 @@ def get_page_ids(category):
         parameters["cmcontinue"] = response["continue"]["cmcontinue"]
 
 def send_request(parameters):
+    parameters_string = urllib.parse.urlencode(parameters)
+    logging.debug("REQUEST: {}?{}".format(URL, parameters_string))
     response = requests.get(URL, params=parameters)
-    logging.debug("REQUEST: {}".format(response.url))
     logging.debug("RESPONSE: {}".format(response.json()))
     return response.json()
 
